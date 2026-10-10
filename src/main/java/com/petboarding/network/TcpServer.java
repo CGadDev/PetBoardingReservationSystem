@@ -3,6 +3,7 @@ package com.petboarding.network;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.concurrent.*;
@@ -18,18 +19,46 @@ public class TcpServer {
 
     private final ReservationService service;
     private final int port;
+    private final byte[] apiKey;
 
-    // Thread pool for handling multiple clients.
+    // Thread pool for handling concurrent TCP clients.
     private final ExecutorService executor =
             Executors.newFixedThreadPool(10);
 
-    // Asynchronous logger for reservation activity.
+    // Records successful operations asynchronously.
     private final AsyncAuditLogger auditLogger =
             new AsyncAuditLogger();
 
-    public TcpServer(ReservationService service, int port) {
+    public TcpServer(
+            ReservationService service,
+            int port,
+            String apiKey) {
+
+        if (service == null) {
+            throw new IllegalArgumentException(
+                    "Reservation service is required.");
+        }
+
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalArgumentException(
+                    "An API key is required.");
+        }
+
         this.service = service;
         this.port = port;
+        this.apiKey = apiKey.getBytes(StandardCharsets.UTF_8);
+    }
+
+    // Checks whether the client provided the correct key.
+    private boolean authenticate(String providedKey) {
+
+        if (providedKey == null) {
+            return false;
+        }
+
+        return MessageDigest.isEqual(
+                apiKey,
+                providedKey.getBytes(StandardCharsets.UTF_8));
     }
 
     // Starts the TCP server.
@@ -38,23 +67,27 @@ public class TcpServer {
         try (ServerSocket serverSocket = new ServerSocket(
                 port, 50, InetAddress.getLoopbackAddress())) {
 
-            System.out.println("TCP Server running on port " + port);
+            System.out.println(
+                    "TCP Server running on port " + port);
+
             System.out.println("Waiting for clients...");
 
             while (!Thread.currentThread().isInterrupted()) {
 
                 Socket clientSocket = serverSocket.accept();
 
-                executor.submit(() -> handleClient(clientSocket));
+                executor.submit(
+                        () -> handleClient(clientSocket));
             }
 
         } finally {
+
             executor.shutdownNow();
             auditLogger.close();
         }
     }
 
-    // Handles communication with an individual client.
+    // Handles communication with an individual TCP client.
     private void handleClient(Socket socket) {
 
         try (socket;
@@ -70,10 +103,15 @@ public class TcpServer {
 
             socket.setSoTimeout(300000);
 
-            System.out.println("Client connected: "
+            System.out.println(
+                    "Client connected: "
                     + socket.getRemoteSocketAddress());
 
-            output.println("OK|Connected to Pet Boarding Server");
+            output.println(
+                    "OK|Connected to Pet Boarding Server");
+
+            // Authentication is unique to each connection.
+            boolean authenticated = false;
 
             while (true) {
 
@@ -96,27 +134,77 @@ public class TcpServer {
                     break;
                 }
 
+                if (request.isBlank()) {
+                    output.println("ERROR|Empty command");
+                    continue;
+                }
+
+                String[] parts =
+                        request.trim().split("\\|", -1);
+
+                String command = parts[0].trim()
+                        .toUpperCase(Locale.ROOT);
+
+                // Authenticate using AUTH|APIKey.
+                if (command.equals("AUTH")) {
+
+                    if (parts.length != 2) {
+                        authenticated = false;
+                        output.println(
+                                "ERROR|Invalid AUTH command");
+                        continue;
+                    }
+
+                    authenticated = authenticate(parts[1]);
+
+                    if (authenticated) {
+                        output.println("OK|Authenticated");
+                    } else {
+                        output.println("ERROR|Unauthorized");
+                    }
+
+                    continue;
+                }
+
+                // Require authentication for protected actions.
+                if (!authenticated
+                        && (command.equals("RESERVE")
+                        || command.equals("GET")
+                        || command.equals("CANCEL"))) {
+
+                    output.println("ERROR|Unauthorized");
+                    continue;
+                }
+
+                // Process the client request.
                 String response = processRequest(request);
 
                 output.println(response);
             }
 
         } catch (SocketTimeoutException e) {
-            System.out.println("Client connection timed out.");
+
+            System.out.println(
+                    "Client connection timed out.");
 
         } catch (IOException e) {
-            System.out.println("Client disconnected.");
+
+            System.out.println(
+                    "Client disconnected.");
 
         } catch (RuntimeException e) {
-            System.err.println("Unexpected client processing error.");
+
+            System.err.println(
+                    "Unexpected client processing error.");
         }
     }
 
-    // Limits incoming request length.
+    // Reads client input with a maximum length.
     private String readLimitedLine(BufferedReader input)
             throws IOException {
 
         StringBuilder request = new StringBuilder();
+
         int character;
 
         while ((character = input.read()) != -1) {
@@ -136,17 +224,16 @@ public class TcpServer {
             request.append((char) character);
         }
 
-        return request.length() == 0 ? null : request.toString();
+        return request.length() == 0
+                ? null
+                : request.toString();
     }
 
-    // Processes commands received from TCP clients.
+    // Processes valid TCP commands.
     private String processRequest(String request) {
 
-        if (request == null || request.isBlank()) {
-            return "ERROR|Empty command";
-        }
-
-        String[] parts = request.trim().split("\\|", -1);
+        String[] parts =
+                request.trim().split("\\|", -1);
 
         String command = parts[0].trim()
                 .toUpperCase(Locale.ROOT);
@@ -155,19 +242,25 @@ public class TcpServer {
 
             switch (command) {
 
-                // Displays available boarding spaces.
+                // View boarding availability.
                 case "LIST":
 
                     if (parts.length != 1) {
                         return "ERROR|Invalid LIST command";
                     }
 
-                    int dogs = service.getAvailableSpaces(PetType.DOG);
-                    int cats = service.getAvailableSpaces(PetType.CAT);
+                    int dogs =
+                            service.getAvailableSpaces(
+                                    PetType.DOG);
 
-                    return "OK|DOG=" + dogs + "|CAT=" + cats;
+                    int cats =
+                            service.getAvailableSpaces(
+                                    PetType.CAT);
 
-                // Creates a new reservation.
+                    return "OK|DOG=" + dogs
+                            + "|CAT=" + cats;
+
+                // Create a reservation.
                 case "RESERVE":
 
                     if (parts.length != 3) {
@@ -175,45 +268,48 @@ public class TcpServer {
                     }
 
                     PetType petType = PetType.valueOf(
-                            parts[1].trim().toUpperCase(Locale.ROOT));
+                            parts[1].trim()
+                                    .toUpperCase(Locale.ROOT));
 
                     String petName = parts[2].trim();
 
                     if (petName.isBlank()
                             || petName.length() > 50
-                            || petName.chars().anyMatch(
+                            || petName.codePoints().anyMatch(
                                     Character::isISOControl)) {
 
                         return "ERROR|Invalid pet name";
                     }
 
-                    Reservation reservation = service.reserve(
-                            petName, petType);
+                    Reservation reservation =
+                            service.reserve(petName, petType);
 
-                    // Record successful reservation asynchronously.
+                    // Background audit logging.
                     auditLogger.log(
                             "RESERVED",
-                            reservation.getId()
-                    );
+                            reservation.getId());
 
                     return "OK|RESERVED|"
                             + reservation.getId()
                             + "|" + reservation.getPetName();
 
-                // Retrieves an existing reservation.
+                // Retrieve a reservation.
                 case "GET":
 
                     if (parts.length != 2) {
                         return "ERROR|Invalid GET command";
                     }
 
-                    long getId = parseReservationId(parts[1]);
+                    long getId =
+                            parseReservationId(parts[1]);
 
-                    Reservation found = service.getAllReservations()
-                            .stream()
-                            .filter(r -> r.getId() == getId)
-                            .findFirst()
-                            .orElseThrow(NoSuchElementException::new);
+                    Reservation found =
+                            service.getAllReservations()
+                                    .stream()
+                                    .filter(r -> r.getId() == getId)
+                                    .findFirst()
+                                    .orElseThrow(
+                                            NoSuchElementException::new);
 
                     return "OK|RESERVATION|"
                             + found.getId()
@@ -221,33 +317,37 @@ public class TcpServer {
                             + "|" + found.getPetType()
                             + "|" + found.getStatus();
 
-                // Cancels an existing reservation.
+                // Cancel a reservation.
                 case "CANCEL":
 
                     if (parts.length != 2) {
                         return "ERROR|Invalid CANCEL command";
                     }
 
-                    long cancelId = parseReservationId(parts[1]);
+                    long cancelId =
+                            parseReservationId(parts[1]);
 
-                    Reservation cancelled = service.cancel(cancelId);
+                    Reservation cancelled =
+                            service.cancel(cancelId);
 
-                    // Record successful cancellation asynchronously.
+                    // Background audit logging.
                     auditLogger.log(
                             "CANCELLED",
-                            cancelled.getId()
-                    );
+                            cancelled.getId());
 
-                    return "OK|CANCELLED|" + cancelled.getId();
+                    return "OK|CANCELLED|"
+                            + cancelled.getId();
 
                 default:
                     return "ERROR|Unknown command";
             }
 
         } catch (IllegalArgumentException e) {
+
             return "ERROR|Invalid input";
 
         } catch (NoSuchElementException e) {
+
             return "ERROR|Reservation not found";
 
         } catch (IllegalStateException e) {
@@ -263,11 +363,17 @@ public class TcpServer {
             return "ERROR|Operation unsuccessful";
 
         } catch (IOException e) {
-            System.err.println("Reservation storage operation failed.");
+
+            System.err.println(
+                    "Reservation storage operation failed.");
+
             return "ERROR|Server error";
 
         } catch (RuntimeException e) {
-            System.err.println("Unexpected reservation processing error.");
+
+            System.err.println(
+                    "Unexpected reservation processing error.");
+
             return "ERROR|Server error";
         }
     }
@@ -285,7 +391,7 @@ public class TcpServer {
         return id;
     }
 
-    // Exception for oversized TCP requests.
+    // Exception for oversized client requests.
     private static class RequestTooLongException
             extends IOException {
 
