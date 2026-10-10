@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Locale;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.concurrent.*;
 
 import com.petboarding.model.PetType;
@@ -17,17 +18,21 @@ public class TcpServer {
     private static final int MAX_REQUEST_LENGTH = 256;
 
     private final ReservationService service;
-    private final int port;
     private final byte[] apiKey;
+    private final ServerSocket serverSocket;
 
-    // Handles multiple TCP clients concurrently.
     private final ExecutorService executor =
             Executors.newFixedThreadPool(10);
+
+    private final Set<Socket> clients =
+            ConcurrentHashMap.newKeySet();
+
+    private volatile boolean running = true;
 
     public TcpServer(
             ReservationService service,
             int port,
-            String apiKey) {
+            String apiKey) throws IOException {
 
         if (service == null) {
             throw new IllegalArgumentException(
@@ -40,46 +45,81 @@ public class TcpServer {
         }
 
         this.service = service;
-        this.port = port;
-        this.apiKey = apiKey.getBytes(StandardCharsets.UTF_8);
+        this.apiKey =
+                apiKey.getBytes(StandardCharsets.UTF_8);
+
+        // Port 0 selects an available port during testing.
+        this.serverSocket = new ServerSocket(
+                port, 50, InetAddress.getLoopbackAddress());
+    }
+
+    // Returns the actual server port.
+    public int getPort() {
+        return serverSocket.getLocalPort();
     }
 
     private boolean authenticate(String providedKey) {
 
-        if (providedKey == null) {
-            return false;
-        }
-
-        return MessageDigest.isEqual(
-                apiKey,
-                providedKey.getBytes(StandardCharsets.UTF_8));
+        return providedKey != null
+                && MessageDigest.isEqual(
+                        apiKey,
+                        providedKey.getBytes(StandardCharsets.UTF_8));
     }
 
-    // Starts the TCP server.
-    public void start() throws IOException {
+    // Accepts multiple TCP connections.
+    public void start() {
 
-        try (ServerSocket serverSocket = new ServerSocket(
-                port, 50, InetAddress.getLoopbackAddress())) {
+        System.out.println(
+                "TCP Server running on port " + getPort());
 
-            System.out.println(
-                    "TCP Server running on port " + port);
+        System.out.println("Waiting for clients...");
 
-            System.out.println("Waiting for clients...");
+        try {
+            while (running) {
 
-            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    Socket socket = serverSocket.accept();
 
-                Socket clientSocket = serverSocket.accept();
+                    if (!running) {
+                        socket.close();
+                        break;
+                    }
 
-                executor.submit(
-                        () -> handleClient(clientSocket));
+                    clients.add(socket);
+
+                    try {
+                        executor.execute(
+                                () -> handleClient(socket));
+
+                    } catch (RejectedExecutionException e) {
+                        clients.remove(socket);
+                        socket.close();
+                    }
+
+                } catch (SocketException e) {
+
+                    if (running) {
+                        System.err.println(
+                                "TCP socket error.");
+                    }
+
+                    break;
+                }
+            }
+
+        } catch (IOException e) {
+
+            if (running) {
+                System.err.println(
+                        "TCP server communication error.");
             }
 
         } finally {
-            executor.shutdownNow();
+            stop();
         }
     }
 
-    // Handles an individual TCP client.
+    // Handles requests from one client.
     private void handleClient(Socket socket) {
 
         try (socket;
@@ -87,7 +127,6 @@ public class TcpServer {
                      new InputStreamReader(
                              socket.getInputStream(),
                              StandardCharsets.UTF_8));
-
              PrintWriter output = new PrintWriter(
                      new OutputStreamWriter(
                              socket.getOutputStream(),
@@ -99,12 +138,12 @@ public class TcpServer {
                     "Client connected: "
                     + socket.getRemoteSocketAddress());
 
+            boolean authenticated = false;
+
             output.println(
                     "OK|Connected to Pet Boarding Server");
 
-            boolean authenticated = false;
-
-            while (true) {
+            while (running) {
 
                 String request;
 
@@ -136,7 +175,7 @@ public class TcpServer {
                 String command = parts[0].trim()
                         .toUpperCase(Locale.ROOT);
 
-                // Authenticate the connected client.
+                // Authenticate this connection.
                 if (command.equals("AUTH")) {
 
                     if (parts.length != 2) {
@@ -148,16 +187,15 @@ public class TcpServer {
 
                     authenticated = authenticate(parts[1]);
 
-                    if (authenticated) {
-                        output.println("OK|Authenticated");
-                    } else {
-                        output.println("ERROR|Unauthorized");
-                    }
+                    output.println(
+                            authenticated
+                                    ? "OK|Authenticated"
+                                    : "ERROR|Unauthorized");
 
                     continue;
                 }
 
-                // Protect reservation operations.
+                // Restrict reservation operations.
                 if (!authenticated
                         && (command.equals("RESERVE")
                         || command.equals("GET")
@@ -167,9 +205,7 @@ public class TcpServer {
                     continue;
                 }
 
-                String response = processRequest(request);
-
-                output.println(response);
+                output.println(processRequest(request));
             }
 
         } catch (SocketTimeoutException e) {
@@ -179,16 +215,22 @@ public class TcpServer {
 
         } catch (IOException e) {
 
-            System.out.println("Client disconnected.");
+            if (running) {
+                System.out.println(
+                        "Client disconnected.");
+            }
 
         } catch (RuntimeException e) {
 
             System.err.println(
                     "Unexpected client processing error.");
+
+        } finally {
+            clients.remove(socket);
         }
     }
 
-    // Limits the length of TCP requests.
+    // Reads a bounded command from the client.
     private String readLimitedLine(BufferedReader input)
             throws IOException {
 
@@ -218,7 +260,7 @@ public class TcpServer {
                 : request.toString();
     }
 
-    // Processes TCP commands.
+    // Processes the supported TCP commands.
     private String processRequest(String request) {
 
         String[] parts =
@@ -237,16 +279,13 @@ public class TcpServer {
                         return "ERROR|Invalid LIST command";
                     }
 
-                    int dogs =
-                            service.getAvailableSpaces(
-                                    PetType.DOG);
+                    int dogs = service.getAvailableSpaces(
+                            PetType.DOG);
 
-                    int cats =
-                            service.getAvailableSpaces(
-                                    PetType.CAT);
+                    int cats = service.getAvailableSpaces(
+                            PetType.CAT);
 
-                    return "OK|DOG=" + dogs
-                            + "|CAT=" + cats;
+                    return "OK|DOG=" + dogs + "|CAT=" + cats;
 
                 case "RESERVE":
 
@@ -259,14 +298,6 @@ public class TcpServer {
                                     .toUpperCase(Locale.ROOT));
 
                     String petName = parts[2].trim();
-
-                    if (petName.isBlank()
-                            || petName.length() > 50
-                            || petName.codePoints().anyMatch(
-                                    Character::isISOControl)) {
-
-                        return "ERROR|Invalid pet name";
-                    }
 
                     Reservation reservation =
                             service.reserve(petName, petType);
@@ -363,6 +394,28 @@ public class TcpServer {
         }
 
         return id;
+    }
+
+    // Stops the server and closes connected sockets.
+    public void stop() {
+
+        running = false;
+
+        try {
+            serverSocket.close();
+        } catch (IOException e) {
+            // Socket may already be closed.
+        }
+
+        for (Socket client : clients) {
+            try {
+                client.close();
+            } catch (IOException e) {
+                // Continue closing other clients.
+            }
+        }
+
+        executor.shutdownNow();
     }
 
     private static class RequestTooLongException
