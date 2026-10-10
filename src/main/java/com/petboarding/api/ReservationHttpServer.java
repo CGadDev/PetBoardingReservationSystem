@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -32,8 +33,8 @@ public class ReservationHttpServer {
     private final ReservationService service;
     private final ObjectMapper mapper;
     private final byte[] apiKey;
+    private final ExecutorService executor;
 
-    // Initializes the HTTP server and shared reservation service.
     public ReservationHttpServer(
             ReservationService service,
             int port,
@@ -56,24 +57,23 @@ public class ReservationHttpServer {
         mapper.enable(
                 DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
-        // Bind only to the local computer for development.
+        // Port 0 allows tests to use an available port.
         server = HttpServer.create(
                 new InetSocketAddress(
                         InetAddress.getLoopbackAddress(), port),
                 0);
 
-        // Register HTTP endpoints.
         server.createContext(
                 "/resources", this::handleResources);
 
         server.createContext(
                 "/reservations", this::handleReservations);
 
-        // Allows multiple HTTP requests to be handled.
-        server.setExecutor(Executors.newFixedThreadPool(10));
+        executor = Executors.newFixedThreadPool(10);
+        server.setExecutor(executor);
     }
 
-    // Verifies the API key for protected endpoints.
+    // Verifies the API key.
     private boolean isAuthorized(HttpExchange exchange) {
 
         String provided = exchange.getRequestHeaders()
@@ -88,7 +88,7 @@ public class ReservationHttpServer {
                 provided.getBytes(StandardCharsets.UTF_8));
     }
 
-    // Handles GET /resources.
+    // Handles requests for boarding availability.
     private void handleResources(HttpExchange exchange)
             throws IOException {
 
@@ -130,7 +130,7 @@ public class ReservationHttpServer {
         sendJson(exchange, response);
     }
 
-    // Handles reservation-related HTTP requests.
+    // Handles reservation-related requests.
     private void handleReservations(HttpExchange exchange)
             throws IOException {
 
@@ -167,11 +167,10 @@ public class ReservationHttpServer {
         sendJson(exchange, response);
     }
 
-    // Routes requests to the appropriate operation.
+    // Determines the requested reservation operation.
     private ApiResponse processReservationRequest(
             HttpExchange exchange) throws IOException {
 
-        // Require an API key for reservation operations.
         if (!isAuthorized(exchange)) {
             return error(401, "Unauthorized");
         }
@@ -179,10 +178,9 @@ public class ReservationHttpServer {
         String path = exchange.getRequestURI().getPath();
         String method = exchange.getRequestMethod();
 
-        // Operations involving the reservations collection.
+        // Operations on the reservation collection.
         if (path.equals("/reservations")) {
 
-            // GET /reservations
             if (method.equals("GET")) {
 
                 List<Map<String, Object>> reservations =
@@ -197,7 +195,6 @@ public class ReservationHttpServer {
                 );
             }
 
-            // POST /reservations
             if (method.equals("POST")) {
                 return createReservation(exchange);
             }
@@ -208,7 +205,6 @@ public class ReservationHttpServer {
             return error(405, "Method not allowed");
         }
 
-        // Operations involving one reservation.
         String prefix = "/reservations/";
 
         if (!path.startsWith(prefix)) {
@@ -227,14 +223,15 @@ public class ReservationHttpServer {
             return error(400, "Invalid reservation ID");
         }
 
-        // GET /reservations/{id}
+        // Retrieve an individual reservation.
         if (method.equals("GET")) {
 
-            Reservation found = service.getAllReservations()
-                    .stream()
-                    .filter(r -> r.getId() == reservationId)
-                    .findFirst()
-                    .orElseThrow(NoSuchElementException::new);
+            Reservation found =
+                    service.getAllReservations()
+                            .stream()
+                            .filter(r -> r.getId() == reservationId)
+                            .findFirst()
+                            .orElseThrow(NoSuchElementException::new);
 
             return new ApiResponse(
                     200,
@@ -242,7 +239,7 @@ public class ReservationHttpServer {
             );
         }
 
-        // DELETE /reservations/{id}
+        // Cancel an individual reservation.
         if (method.equals("DELETE")) {
 
             Reservation cancelled =
@@ -260,14 +257,13 @@ public class ReservationHttpServer {
         return error(405, "Method not allowed");
     }
 
-    // Creates a reservation using a JSON request body.
+    // Creates a reservation from a JSON body.
     private ApiResponse createReservation(
             HttpExchange exchange) throws IOException {
 
         String contentType = exchange.getRequestHeaders()
                 .getFirst("Content-Type");
 
-        // Only accept application/json.
         if (contentType == null
                 || !contentType.toLowerCase(Locale.ROOT)
                         .split(";")[0].trim()
@@ -276,7 +272,6 @@ public class ReservationHttpServer {
             return error(415, "JSON content required");
         }
 
-        // Limit the amount of incoming request data.
         byte[] body = exchange.getRequestBody()
                 .readNBytes(MAX_BODY_SIZE + 1);
 
@@ -284,7 +279,6 @@ public class ReservationHttpServer {
             return error(413, "Request body too large");
         }
 
-        // Parse supplied JSON safely.
         JsonNode json = mapper.readTree(body);
 
         if (json == null
@@ -296,16 +290,14 @@ public class ReservationHttpServer {
             return error(400, "Invalid reservation data");
         }
 
-        String petName = json.get("petName").asText();
+        String petName =
+                json.get("petName").asText();
 
-        String typeValue = json.get("petType")
-                .asText()
-                .trim()
-                .toUpperCase(Locale.ROOT);
+        PetType petType = PetType.valueOf(
+                json.get("petType").asText()
+                        .trim()
+                        .toUpperCase(Locale.ROOT));
 
-        PetType petType = PetType.valueOf(typeValue);
-
-        // ReservationService performs final validation.
         Reservation reservation =
                 service.reserve(petName, petType);
 
@@ -319,7 +311,7 @@ public class ReservationHttpServer {
         );
     }
 
-    // Converts a reservation into structured JSON.
+    // Converts reservation information to JSON fields.
     private Map<String, Object> reservationToMap(
             Reservation reservation) {
 
@@ -331,7 +323,6 @@ public class ReservationHttpServer {
         );
     }
 
-    // Creates a standard error response.
     private ApiResponse error(int status, String message) {
 
         return new ApiResponse(
@@ -340,12 +331,12 @@ public class ReservationHttpServer {
         );
     }
 
-    // Sends JSON content with the appropriate HTTP status.
+    // Sends structured HTTP responses.
     private void sendJson(
             HttpExchange exchange,
             ApiResponse response) throws IOException {
 
-        byte[] responseBytes =
+        byte[] bytes =
                 mapper.writeValueAsBytes(response.body());
 
         exchange.getResponseHeaders().set(
@@ -356,18 +347,21 @@ public class ReservationHttpServer {
                 "Cache-Control", "no-store");
 
         exchange.sendResponseHeaders(
-                response.status(),
-                responseBytes.length);
+                response.status(), bytes.length);
 
         try (OutputStream output =
                 exchange.getResponseBody()) {
 
-            output.write(responseBytes);
+            output.write(bytes);
         }
     }
 
-    // Internal response representation.
     private record ApiResponse(int status, Object body) {}
+
+    // Returns the assigned port for integration tests.
+    public int getPort() {
+        return server.getAddress().getPort();
+    }
 
     // Starts the HTTP server.
     public void start() {
@@ -375,12 +369,13 @@ public class ReservationHttpServer {
         server.start();
 
         System.out.println(
-                "HTTP Server running on port "
-                + server.getAddress().getPort());
+                "HTTP Server running on port " + getPort());
     }
 
-    // Stops the HTTP server.
+    // Stops the HTTP server and its worker threads.
     public void stop() {
+
         server.stop(1);
+        executor.shutdownNow();
     }
 }
