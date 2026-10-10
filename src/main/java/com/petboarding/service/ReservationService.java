@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+import com.petboarding.logging.AsyncAuditLogger;
 import com.petboarding.model.PetType;
 import com.petboarding.model.Reservation;
 import com.petboarding.model.ReservationStatus;
@@ -13,27 +14,39 @@ import com.petboarding.repository.ReservationRepository;
 public class ReservationService {
 
     private final ReservationRepository repository;
+    private final AsyncAuditLogger auditLogger;
 
+    // Constructor used by existing unit tests.
     public ReservationService(ReservationRepository repository) {
+        this(repository, null);
+    }
+
+    // Constructor used by the complete application.
+    public ReservationService(
+            ReservationRepository repository,
+            AsyncAuditLogger auditLogger) {
+
         if (repository == null) {
             throw new IllegalArgumentException(
                     "Repository cannot be null.");
         }
 
         this.repository = repository;
+        this.auditLogger = auditLogger;
     }
 
-    // Returns total capacity for each pet category.
+    // Returns boarding capacity.
     private int getCapacity(PetType petType) {
 
         if (petType == null) {
-            throw new IllegalArgumentException("Invalid pet type.");
+            throw new IllegalArgumentException(
+                    "Invalid pet type.");
         }
 
         return petType == PetType.DOG ? 3 : 2;
     }
 
-    // Returns the number of available boarding spaces.
+    // Returns remaining boarding spaces.
     public synchronized int getAvailableSpaces(PetType petType)
             throws IOException {
 
@@ -53,7 +66,6 @@ public class ReservationService {
             String petName, PetType petType)
             throws IOException {
 
-        // Validate externally supplied pet names.
         if (petName == null || petName.isBlank()
                 || petName.trim().length() > 50
                 || petName.contains("|")
@@ -75,13 +87,11 @@ public class ReservationService {
                         == ReservationStatus.CONFIRMED)
                 .count();
 
-        // Prevent overbooking.
         if (activeReservations >= capacity) {
             throw new IllegalStateException(
                     "No boarding spaces available.");
         }
 
-        // Generate a new reservation ID.
         long nextId = reservations.stream()
                 .mapToLong(Reservation::getId)
                 .max()
@@ -94,14 +104,17 @@ public class ReservationService {
                 ReservationStatus.CONFIRMED
         );
 
+        // Save the reservation before recording the event.
         reservations.add(reservation);
-
         repository.save(reservations);
+
+        // Schedule the audit event in the background.
+        recordAudit("RESERVED", reservation.getId());
 
         return reservation;
     }
 
-    // Cancels an existing reservation.
+    // Cancels a reservation.
     public synchronized Reservation cancel(long reservationId)
             throws IOException {
 
@@ -131,8 +144,10 @@ public class ReservationService {
                                 ReservationStatus.CANCELLED);
 
                 reservations.set(i, cancelled);
-
                 repository.save(reservations);
+
+                // Record the successful cancellation.
+                recordAudit("CANCELLED", cancelled.getId());
 
                 return cancelled;
             }
@@ -147,5 +162,13 @@ public class ReservationService {
             throws IOException {
 
         return List.copyOf(repository.load());
+    }
+
+    // Shared asynchronous audit logging.
+    private void recordAudit(String operation, long reservationId) {
+
+        if (auditLogger != null) {
+            auditLogger.log(operation, reservationId);
+        }
     }
 }

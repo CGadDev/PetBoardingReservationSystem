@@ -11,7 +11,6 @@ import java.util.concurrent.*;
 import com.petboarding.model.PetType;
 import com.petboarding.model.Reservation;
 import com.petboarding.service.ReservationService;
-import com.petboarding.logging.AsyncAuditLogger;
 
 public class TcpServer {
 
@@ -21,13 +20,9 @@ public class TcpServer {
     private final int port;
     private final byte[] apiKey;
 
-    // Thread pool for handling concurrent TCP clients.
+    // Handles multiple TCP clients concurrently.
     private final ExecutorService executor =
             Executors.newFixedThreadPool(10);
-
-    // Records successful operations asynchronously.
-    private final AsyncAuditLogger auditLogger =
-            new AsyncAuditLogger();
 
     public TcpServer(
             ReservationService service,
@@ -49,7 +44,6 @@ public class TcpServer {
         this.apiKey = apiKey.getBytes(StandardCharsets.UTF_8);
     }
 
-    // Checks whether the client provided the correct key.
     private boolean authenticate(String providedKey) {
 
         if (providedKey == null) {
@@ -81,13 +75,11 @@ public class TcpServer {
             }
 
         } finally {
-
             executor.shutdownNow();
-            auditLogger.close();
         }
     }
 
-    // Handles communication with an individual TCP client.
+    // Handles an individual TCP client.
     private void handleClient(Socket socket) {
 
         try (socket;
@@ -110,7 +102,6 @@ public class TcpServer {
             output.println(
                     "OK|Connected to Pet Boarding Server");
 
-            // Authentication is unique to each connection.
             boolean authenticated = false;
 
             while (true) {
@@ -145,7 +136,7 @@ public class TcpServer {
                 String command = parts[0].trim()
                         .toUpperCase(Locale.ROOT);
 
-                // Authenticate using AUTH|APIKey.
+                // Authenticate the connected client.
                 if (command.equals("AUTH")) {
 
                     if (parts.length != 2) {
@@ -166,7 +157,7 @@ public class TcpServer {
                     continue;
                 }
 
-                // Require authentication for protected actions.
+                // Protect reservation operations.
                 if (!authenticated
                         && (command.equals("RESERVE")
                         || command.equals("GET")
@@ -176,7 +167,6 @@ public class TcpServer {
                     continue;
                 }
 
-                // Process the client request.
                 String response = processRequest(request);
 
                 output.println(response);
@@ -189,8 +179,7 @@ public class TcpServer {
 
         } catch (IOException e) {
 
-            System.out.println(
-                    "Client disconnected.");
+            System.out.println("Client disconnected.");
 
         } catch (RuntimeException e) {
 
@@ -199,7 +188,7 @@ public class TcpServer {
         }
     }
 
-    // Reads client input with a maximum length.
+    // Limits the length of TCP requests.
     private String readLimitedLine(BufferedReader input)
             throws IOException {
 
@@ -229,7 +218,7 @@ public class TcpServer {
                 : request.toString();
     }
 
-    // Processes valid TCP commands.
+    // Processes TCP commands.
     private String processRequest(String request) {
 
         String[] parts =
@@ -242,7 +231,6 @@ public class TcpServer {
 
             switch (command) {
 
-                // View boarding availability.
                 case "LIST":
 
                     if (parts.length != 1) {
@@ -260,7 +248,6 @@ public class TcpServer {
                     return "OK|DOG=" + dogs
                             + "|CAT=" + cats;
 
-                // Create a reservation.
                 case "RESERVE":
 
                     if (parts.length != 3) {
@@ -284,16 +271,10 @@ public class TcpServer {
                     Reservation reservation =
                             service.reserve(petName, petType);
 
-                    // Background audit logging.
-                    auditLogger.log(
-                            "RESERVED",
-                            reservation.getId());
-
                     return "OK|RESERVED|"
                             + reservation.getId()
                             + "|" + reservation.getPetName();
 
-                // Retrieve a reservation.
                 case "GET":
 
                     if (parts.length != 2) {
@@ -317,7 +298,6 @@ public class TcpServer {
                             + "|" + found.getPetType()
                             + "|" + found.getStatus();
 
-                // Cancel a reservation.
                 case "CANCEL":
 
                     if (parts.length != 2) {
@@ -329,11 +309,6 @@ public class TcpServer {
 
                     Reservation cancelled =
                             service.cancel(cancelId);
-
-                    // Background audit logging.
-                    auditLogger.log(
-                            "CANCELLED",
-                            cancelled.getId());
 
                     return "OK|CANCELLED|"
                             + cancelled.getId();
@@ -378,7 +353,6 @@ public class TcpServer {
         }
     }
 
-    // Validates reservation IDs.
     private long parseReservationId(String value) {
 
         long id = Long.parseLong(value.trim());
@@ -391,7 +365,6 @@ public class TcpServer {
         return id;
     }
 
-    // Exception for oversized client requests.
     private static class RequestTooLongException
             extends IOException {
 

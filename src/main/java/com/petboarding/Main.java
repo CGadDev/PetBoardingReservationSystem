@@ -5,6 +5,7 @@ import java.nio.file.Path;
 import java.util.Locale;
 
 import com.petboarding.api.ReservationHttpServer;
+import com.petboarding.logging.AsyncAuditLogger;
 import com.petboarding.network.TcpServer;
 import com.petboarding.repository.CsvReservationRepository;
 import com.petboarding.repository.JsonReservationRepository;
@@ -16,19 +17,19 @@ public class Main {
 
     public static void main(String[] args) throws IOException {
 
-        // Read the API key from environment variables.
+        // Read the configured API key.
         String apiKey =
                 System.getenv("PET_BOARDING_API_KEY");
 
         if (apiKey == null || apiKey.isBlank()) {
 
             System.err.println(
-                    "Missing PET_BOARDING_API_KEY environment variable.");
+                    "Missing PET_BOARDING_API_KEY.");
 
             return;
         }
 
-        // Read the selected storage format.
+        // Determine the active storage format.
         String storage = System.getenv()
                 .getOrDefault("PET_BOARDING_STORAGE", "csv")
                 .trim()
@@ -36,57 +37,55 @@ public class Main {
 
         ReservationRepository repository;
 
-        // Select persistence without changing business logic.
         switch (storage) {
 
             case "csv":
 
                 repository = new CsvReservationRepository(
                         Path.of("data", "reservations.csv"));
-
                 break;
 
             case "json":
 
                 repository = new JsonReservationRepository(
                         Path.of("data", "reservations.json"));
-
                 break;
 
             case "memory":
 
                 repository =
                         new InMemoryReservationRepository();
-
                 break;
 
             default:
 
                 System.err.println(
                         "Invalid storage option: " + storage);
-
                 return;
         }
 
-        // Shared reservation service used by both servers.
-        ReservationService service =
-                new ReservationService(repository);
+        // One shared asynchronous audit logger.
+        AsyncAuditLogger auditLogger =
+                new AsyncAuditLogger();
 
-        // HTTP server with API-key authentication.
+        // Attempt to finish queued log writes
+        // during normal application shutdown.
+        Runtime.getRuntime().addShutdownHook(
+                new Thread(auditLogger::close));
+
+        // One shared reservation service.
+        ReservationService service =
+                new ReservationService(
+                        repository, auditLogger);
+
+        // Both interfaces share the same service.
         ReservationHttpServer httpServer =
                 new ReservationHttpServer(
-                        service,
-                        8082,
-                        apiKey
-                );
+                        service, 8082, apiKey);
 
-        // TCP server using the same API key.
         TcpServer tcpServer =
                 new TcpServer(
-                        service,
-                        5050,
-                        apiKey
-                );
+                        service, 5050, apiKey);
 
         System.out.println(
                 "Pet Boarding Reservation System");
@@ -97,10 +96,7 @@ public class Main {
         System.out.println(
                 "Storage format: " + storage);
 
-        // Start HTTP communication.
         httpServer.start();
-
-        // Start TCP communication.
         tcpServer.start();
     }
 }
