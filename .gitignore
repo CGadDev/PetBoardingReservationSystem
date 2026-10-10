@@ -1,0 +1,27 @@
+# Maven build output
+target/
+*.class
+
+# Eclipse temporary configuration
+.settings/
+.classpath
+.project
+.factorypath
+*.launch
+
+# Runtime files
+logs/
+data/
+*.log
+
+# Local secrets
+.env
+.env.*
+
+# Other IDE files
+.idea/
+.vscode/
+
+# Operating system files
+.DS_Store
+Thumbs.db
