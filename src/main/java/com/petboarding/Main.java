@@ -7,6 +7,7 @@ import java.util.Locale;
 import com.petboarding.api.ReservationHttpServer;
 import com.petboarding.logging.AsyncAuditLogger;
 import com.petboarding.network.TcpServer;
+import com.petboarding.repository.CachingReservationRepository;
 import com.petboarding.repository.CsvReservationRepository;
 import com.petboarding.repository.JsonReservationRepository;
 import com.petboarding.repository.InMemoryReservationRepository;
@@ -41,8 +42,10 @@ public class Main {
 
             case "csv":
 
-                repository = new CsvReservationRepository(
-                        Path.of("data", "reservations.csv"));
+                // Cache CSV data to avoid repeated file parsing.
+                repository = new CachingReservationRepository(
+                        new CsvReservationRepository(
+                                Path.of("data", "reservations.csv")));
                 break;
 
             case "json":
