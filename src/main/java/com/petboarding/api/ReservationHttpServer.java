@@ -69,7 +69,7 @@ public class ReservationHttpServer {
         server.createContext(
                 "/reservations", this::handleReservations);
 
-        executor = Executors.newFixedThreadPool(20);
+        executor = Executors.newFixedThreadPool(10);
         server.setExecutor(executor);
     }
 
