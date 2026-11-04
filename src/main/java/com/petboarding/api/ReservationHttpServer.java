@@ -58,10 +58,9 @@ public class ReservationHttpServer {
                 DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
         // Port 0 allows tests to use an available port.
-        server = HttpServer.create(
-                new InetSocketAddress(
-                        InetAddress.getLoopbackAddress(), port),
-                0);
+server = HttpServer.create(
+        new InetSocketAddress("0.0.0.0", port),
+        0);
 
         server.createContext(
                 "/resources", this::handleResources);

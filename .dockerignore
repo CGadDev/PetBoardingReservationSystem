@@ -1,0 +1,9 @@
+.git
+.github
+.settings
+.classpath
+.project
+target
+logs
+vagrant
+*.log
