@@ -1,8 +1,8 @@
-\# Pet Boarding Reservation System
+﻿# Pet Boarding Reservation System
 
 
 
-\## Project Overview
+## Project Overview
 
 
 
@@ -18,19 +18,19 @@ The application supports CSV, JSON, and in-memory storage and uses an API key to
 
 
 
-\## Technologies and Requirements
+## Technologies and Requirements
 
 
 
-\- Java 17
+- Java 17
 
-\- Apache Maven
+- Apache Maven
 
-\- Docker Desktop
+- Docker Desktop
 
-\- Git and GitHub
+- Git and GitHub
 
-\- Render for cloud deployment
+- Render for cloud deployment
 
 
 
@@ -42,11 +42,11 @@ The application uses HTTP port 8082 and TCP port 5050. Only the HTTP service is 
 
 
 
-\## Running the Application with Docker
+## Running the Application with Docker
 
 
 
-\### 1. Clone the Repository
+### 1. Clone the Repository
 
 
 
@@ -60,7 +60,7 @@ cd PetBoardingReservationSystem
 
 
 
-\### 2. Build the Docker Image
+### 2. Build the Docker Image
 
 
 
@@ -76,13 +76,13 @@ The Dockerfile uses a multi-stage build. Maven compiles and packages the applica
 
 
 
-\### 3. Start the Container
+### 3. Start the Container
 
 
 
 ```powershell
 
-docker run -d --name petboarding-local -p 127.0.0.1:8085:8082 -e PET\_BOARDING\_API\_KEY=local-demo-key -e PET\_BOARDING\_STORAGE=memory petboarding:local
+docker run -d --name petboarding-local -p 127.0.0.1:8085:8082 -e PET_BOARDING_API_KEY=local-demo-key -e PET_BOARDING_STORAGE=memory petboarding:local
 
 ```
 
@@ -92,13 +92,13 @@ This command:
 
 
 
-\- Creates a container named `petboarding-local`.
+- Creates a container named `petboarding-local`.
 
-\- Publishes container port 8082 through localhost port 8085.
+- Publishes container port 8082 through localhost port 8085.
 
-\- Sets an API key for reservation requests.
+- Sets an API key for reservation requests.
 
-\- Configures in-memory reservation storage.
+- Configures in-memory reservation storage.
 
 
 
@@ -106,7 +106,7 @@ The example API key is intended for local testing only. Use a unique private key
 
 
 
-\### 4. Verify the Container
+### 4. Verify the Container
 
 
 
@@ -134,7 +134,7 @@ The logs should confirm that the HTTP server is running on port 8082 and the TCP
 
 
 
-\### 5. Access the Application
+### 5. Access the Application
 
 
 
@@ -162,11 +162,11 @@ docker start petboarding-local
 
 
 
-\## Testing the HTTP API
+## Testing the HTTP API
 
 
 
-\### Retrieve Available Boarding Capacity
+### Retrieve Available Boarding Capacity
 
 
 
@@ -178,7 +178,7 @@ Invoke-RestMethod -Uri "http://localhost:8085/resources"
 
 
 
-\### Retrieve Reservations
+### Retrieve Reservations
 
 
 
@@ -190,7 +190,7 @@ Invoke-RestMethod -Uri "http://localhost:8085/reservations" -Method GET -Headers
 
 
 
-\### Create a Reservation
+### Create a Reservation
 
 
 
@@ -206,7 +206,7 @@ A successful reservation receives a confirmation response. The available boardin
 
 
 
-\## Environment Variables
+## Environment Variables
 
 
 
@@ -214,9 +214,9 @@ A successful reservation receives a confirmation response. The available boardin
 
 |---|---|
 
-| PET\_BOARDING\_API\_KEY | Required API key for authenticated reservation operations |
+| PET_BOARDING_API_KEY | Required API key for authenticated reservation operations |
 
-| PET\_BOARDING\_STORAGE | Selects memory, csv, or json storage |
+| PET_BOARDING_STORAGE | Selects memory, csv, or json storage |
 
 | PORT | Set to 8082 on Render to match the application's HTTP listening port |
 
@@ -230,7 +230,7 @@ CSV and JSON storage use the application's `data` directory.
 
 
 
-\### Persistent JSON Storage
+### Persistent JSON Storage
 
 
 
@@ -240,7 +240,7 @@ To save JSON reservation data using a Docker named volume:
 
 ```powershell
 
-docker run -d --name petboarding-json -p 127.0.0.1:8098:8082 -e PET\_BOARDING\_API\_KEY=local-demo-key -e PET\_BOARDING\_STORAGE=json -v petboarding-json-data:/app/data petboarding:local
+docker run -d --name petboarding-json -p 127.0.0.1:8098:8082 -e PET_BOARDING_API_KEY=local-demo-key -e PET_BOARDING_STORAGE=json -v petboarding-json-data:/app/data petboarding:local
 
 ```
 
@@ -254,7 +254,7 @@ In-memory reservations are lost when the application restarts. JSON reservations
 
 
 
-\## Cloud Deployment with Render
+## Cloud Deployment with Render
 
 
 
@@ -262,31 +262,31 @@ The application is deployed using Render's Docker Web Service functionality.
 
 
 
-\### Deployment Procedure
+### Deployment Procedure
 
 
 
-1\. Push the application source code and Dockerfile to GitHub.
+1. Push the application source code and Dockerfile to GitHub.
 
-2\. Sign in to the Render dashboard.
+2. Sign in to the Render dashboard.
 
-3\. Create a new Web Service.
+3. Create a new Web Service.
 
-4\. Connect the PetBoardingReservationSystem GitHub repository.
+4. Connect the PetBoardingReservationSystem GitHub repository.
 
-5\. Select the `main` branch.
+5. Select the `main` branch.
 
-6\. Choose Docker as the runtime.
+6. Choose Docker as the runtime.
 
-7\. Select the Free compute plan.
+7. Select the Free compute plan.
 
-8\. Configure the required environment variables.
+8. Configure the required environment variables.
 
-9\. Create the Web Service and wait for deployment to finish.
+9. Create the Web Service and wait for deployment to finish.
 
 
 
-\### Render Environment Configuration
+### Render Environment Configuration
 
 
 
@@ -296,9 +296,9 @@ The application is deployed using Render's Docker Web Service functionality.
 
 | PORT | 8082 |
 
-| PET\_BOARDING\_STORAGE | memory |
+| PET_BOARDING_STORAGE | memory |
 
-| PET\_BOARDING\_API\_KEY | A unique private API key |
+| PET_BOARDING_API_KEY | A unique private API key |
 
 
 
@@ -306,7 +306,7 @@ The API key must be configured through Render's environment settings and should 
 
 
 
-\### Public Application URL
+### Public Application URL
 
 
 
@@ -314,7 +314,7 @@ https://petboardingreservationsystem.onrender.com
 
 
 
-\### Verify Cloud Deployment
+### Verify Cloud Deployment
 
 
 
@@ -338,7 +338,7 @@ To test authenticated requests in PowerShell without displaying the API key:
 
 $secureRenderKey = Read-Host "Enter your Render API key" -AsSecureString
 
-$renderApiKey = \[System.Net.NetworkCredential]::new("", $secureRenderKey).Password
+$renderApiKey = [System.Net.NetworkCredential]::new("", $secureRenderKey).Password
 
 $renderHeaders = @{"X-API-Key" = $renderApiKey}
 
@@ -370,7 +370,7 @@ Invoke-RestMethod -Uri "https://petboardingreservationsystem.onrender.com/reserv
 
 
 
-\## Container and Cloud Configuration Considerations
+## Container and Cloud Configuration Considerations
 
 
 
@@ -402,7 +402,7 @@ The TCP service on port 5050 is not publicly exposed through the Render Web Serv
 
 
 
-\## Virtual Machine Automation
+## Virtual Machine Automation
 
 
 
@@ -410,13 +410,14 @@ The repository also contains Vagrant resources from the earlier virtualization a
 
 
 
-See \[Vagrant Setup Instructions](vagrant/README.md) for the separate virtual machine provisioning documentation.
+See [Vagrant Setup Instructions](vagrant/README.md) for the separate virtual machine provisioning documentation.
 
 
 
-\## Repository
+## Repository
 
 
 
 https://github.com/CGadDev/PetBoardingReservationSystem
+
 
