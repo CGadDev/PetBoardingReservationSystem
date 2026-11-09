@@ -114,7 +114,11 @@ server = HttpServer.create(
 
                 response = new ApiResponse(
                         200,
-                        Map.of("DOG", dogs, "CAT", cats)
+                        Map.of(
+                                "DOG", dogs,
+                                "CAT", cats,
+                                "totalAvailable", dogs + cats
+                        )
                 );
 
             } catch (IOException e) {

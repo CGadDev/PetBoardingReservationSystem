@@ -117,6 +117,17 @@ public class HttpApiIntegrationTest {
 
         assertEquals(3, json.get("DOG").asInt());
         assertEquals(2, json.get("CAT").asInt());
+
+        // Verify the total available boarding spaces.
+        assertTrue(json.has("totalAvailable"));
+
+        assertEquals(5,
+                json.get("totalAvailable").asInt());
+
+        assertEquals(
+                json.get("DOG").asInt()
+                        + json.get("CAT").asInt(),
+                json.get("totalAvailable").asInt());
     }
 
     @Test
@@ -160,6 +171,10 @@ public class HttpApiIntegrationTest {
 
         assertEquals(2, spaces.get("DOG").asInt());
 
+        // Verify total availability decreased.
+        assertEquals(4,
+                spaces.get("totalAvailable").asInt());
+
         // Cancel the reservation.
         HttpResponse<String> cancelled = send(
                 "DELETE",
@@ -177,9 +192,15 @@ public class HttpApiIntegrationTest {
         HttpResponse<String> restored = send(
                 "GET", "/resources", null, null);
 
+        JsonNode restoredSpaces =
+                mapper.readTree(restored.body());
+
         assertEquals(3,
-                mapper.readTree(restored.body())
-                        .get("DOG").asInt());
+                restoredSpaces.get("DOG").asInt());
+
+        // Verify total availability was restored.
+        assertEquals(5,
+                restoredSpaces.get("totalAvailable").asInt());
     }
 
     @Test
@@ -314,5 +335,9 @@ public class HttpApiIntegrationTest {
 
         assertEquals(2, json.get("DOG").asInt());
         assertEquals(2, json.get("CAT").asInt());
+
+        // Verify total availability reflects the change.
+        assertEquals(4,
+                json.get("totalAvailable").asInt());
     }
 }
