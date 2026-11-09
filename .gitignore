@@ -13,6 +13,7 @@ target/
 logs/
 data/
 *.log
+build-deployment-log.txt
 
 # Local secrets
 .env
