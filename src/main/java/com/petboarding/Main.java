@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import com.petboarding.api.ReservationHttpServer;
 import com.petboarding.logging.AsyncAuditLogger;
 import com.petboarding.network.TcpServer;
+import com.petboarding.repository.CachingReservationRepository;
 import com.petboarding.repository.CsvReservationRepository;
 import com.petboarding.repository.JsonReservationRepository;
 import com.petboarding.repository.InMemoryReservationRepository;
@@ -36,6 +37,24 @@ public class Main {
                 .getOrDefault("PET_BOARDING_STORAGE", "csv")
                 .trim()
                 .toLowerCase(Locale.ROOT);
+
+        // Allow caching to be disabled for performance comparisons.
+        String cacheOption = System.getenv()
+                .getOrDefault("PET_BOARDING_CACHE", "true")
+                .trim()
+                .toLowerCase(Locale.ROOT);
+
+        if (!cacheOption.equals("true")
+                && !cacheOption.equals("false")) {
+
+            System.err.println(
+                    "PET_BOARDING_CACHE must be true or false.");
+
+            return;
+        }
+
+        boolean cacheEnabled =
+                Boolean.parseBoolean(cacheOption);
 
         ReservationRepository repository;
 
@@ -66,6 +85,16 @@ public class Main {
                 return;
         }
 
+        // Apply the verified optimization to JSON storage.
+        boolean cachingActive =
+                cacheEnabled && storage.equals("json");
+
+        if (cachingActive) {
+
+            repository =
+                    new CachingReservationRepository(repository);
+        }
+
         // One shared asynchronous audit logger.
         AsyncAuditLogger auditLogger =
                 new AsyncAuditLogger();
@@ -93,27 +122,40 @@ public class Main {
         System.out.println(
                 "Storage format: " + storage);
 
+        System.out.println(
+                "Repository caching: "
+                        + (cachingActive ? "enabled" : "disabled"));
+
         // Start one background processor for the shared service.
         WaitlistProcessor waitlistProcessor =
                 new WaitlistProcessor(service, 250);
 
-        // Stop network requests and promotion before closing the audit logger.
+        // Stop network requests and promotion
+        // before closing the audit logger.
         AtomicBoolean shuttingDown = new AtomicBoolean();
+
         Runnable shutdown = () -> {
+
             if (shuttingDown.compareAndSet(false, true)) {
+
                 tcpServer.stop();
                 httpServer.stop();
                 waitlistProcessor.close();
                 auditLogger.close();
             }
         };
-        Runtime.getRuntime().addShutdownHook(new Thread(shutdown));
+
+        Runtime.getRuntime().addShutdownHook(
+                new Thread(shutdown));
 
         try {
+
             waitlistProcessor.start();
             httpServer.start();
             tcpServer.start();
+
         } finally {
+
             shutdown.run();
         }
     }
