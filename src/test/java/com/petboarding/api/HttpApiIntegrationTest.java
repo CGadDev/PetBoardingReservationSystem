@@ -322,4 +322,71 @@ public class HttpApiIntegrationTest {
         assertEquals(2, json.get("DOG").asInt());
         assertEquals(2, json.get("CAT").asInt());
     }
+
+    // Ambiguous pet categories must not change the reservation state.
+    @Test
+    void testDuplicatePetTypeRejected() throws Exception {
+
+        for (int i = 0; i < 3; i++) {
+            service.reserve("Dog" + i, PetType.DOG);
+        }
+
+        HttpResponse<String> response = send(
+                "POST", "/reservations",
+                "{\"petName\":\"Charlie\",\"petType\":\"CAT\",\"petType\":\"DOG\"}",
+                TEST_KEY);
+
+        assertEquals(400, response.statusCode());
+        assertEquals(3, service.getAllReservations().size());
+        assertEquals(0, service.getAvailableSpaces(PetType.DOG));
+        assertEquals(2, service.getAvailableSpaces(PetType.CAT));
+    }
+
+    // Duplicate names must also be rejected before saving a reservation.
+    @Test
+    void testDuplicatePetNameRejected() throws Exception {
+
+        HttpResponse<String> response = send(
+                "POST", "/reservations",
+                "{\"petName\":\"Charlie\",\"petName\":\"Daisy\",\"petType\":\"DOG\"}",
+                TEST_KEY);
+
+        assertEquals(400, response.statusCode());
+        assertTrue(service.getAllReservations().isEmpty());
+    }
+
+    // Unauthorized clients must not cancel a waitlisted reservation.
+    @Test
+    void testUnauthorizedWaitlistCancellation() throws Exception {
+
+        for (int i = 0; i < 3; i++) {
+            service.reserve("Dog" + i, PetType.DOG);
+        }
+
+        long id = service.reserve("Charlie", PetType.DOG).getId();
+        String path = "/reservations/" + id;
+
+        assertEquals(401, send("DELETE", path, null, null).statusCode());
+        assertEquals(401, send("DELETE", path, null, "wrong-key").statusCode());
+
+        HttpResponse<String> response = send("GET", path, null, TEST_KEY);
+        assertEquals(200, response.statusCode());
+        assertEquals("WAITLISTED", mapper.readTree(response.body())
+                .get("status").asText());
+        assertEquals(4, service.getAllReservations().size());
+    }
+
+    // Large request bodies must be rejected without changing shared state.
+    @Test
+    void testOversizedBodyRejected() throws Exception {
+
+        String body = "{\"petName\":\"" + "A".repeat(4096)
+                + "\",\"petType\":\"DOG\"}";
+
+        HttpResponse<String> response = send(
+                "POST", "/reservations", body, TEST_KEY);
+
+        assertEquals(413, response.statusCode());
+        assertTrue(service.getAllReservations().isEmpty());
+    }
 }

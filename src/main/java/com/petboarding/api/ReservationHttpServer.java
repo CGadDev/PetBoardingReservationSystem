@@ -2,7 +2,6 @@ package com.petboarding.api;
 
 import java.io.IOException;
 import java.io.OutputStream;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -54,13 +53,17 @@ public class ReservationHttpServer {
         this.apiKey = apiKey.getBytes(StandardCharsets.UTF_8);
 
         mapper = new ObjectMapper();
+
+        // Reject trailing content and ambiguous JSON properties.
         mapper.enable(
                 DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+        mapper.enable(
+                DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY);
 
         // Port 0 allows tests to use an available port.
-server = HttpServer.create(
-        new InetSocketAddress("0.0.0.0", port),
-        0);
+        server = HttpServer.create(
+                new InetSocketAddress("0.0.0.0", port),
+                0);
 
         server.createContext(
                 "/resources", this::handleResources);
