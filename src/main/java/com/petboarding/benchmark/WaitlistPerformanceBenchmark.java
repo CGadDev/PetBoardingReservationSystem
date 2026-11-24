@@ -10,6 +10,7 @@ import java.util.Locale;
 import com.petboarding.model.PetType;
 import com.petboarding.model.Reservation;
 import com.petboarding.model.ReservationStatus;
+import com.petboarding.repository.CachingReservationRepository;
 import com.petboarding.repository.JsonReservationRepository;
 import com.petboarding.repository.ReservationRepository;
 import com.petboarding.service.ReservationService;
@@ -25,9 +26,26 @@ public class WaitlistPerformanceBenchmark {
 
     public static void main(String[] args) throws IOException {
 
+        String mode = args.length == 0
+                ? "baseline"
+                : args[0].toLowerCase(Locale.ROOT);
+
+        if (!mode.equals("baseline")
+                && !mode.equals("cached")) {
+
+            throw new IllegalArgumentException(
+                    "Use baseline or cached.");
+        }
+
+        boolean cached = mode.equals("cached");
+
         System.out.println("Waitlist Performance Benchmark");
         System.out.println("--------------------------------");
-        System.out.println("Mode: Baseline JSON repository");
+
+        System.out.println("Mode: "
+                + (cached ? "Cached JSON repository"
+                          : "Baseline JSON repository"));
+
         System.out.println("Reservation records: " + TOTAL_RECORDS);
         System.out.println("Availability rounds: " + AVAILABILITY_ROUNDS);
         System.out.println("Idle waitlist checks: " + WAITLIST_CHECKS);
@@ -37,7 +55,7 @@ public class WaitlistPerformanceBenchmark {
                 + System.getProperty("java.version"));
 
         for (int trial = 1; trial <= TRIALS; trial++) {
-            runTrial(trial);
+            runTrial(trial, cached);
         }
 
         System.out.println();
@@ -45,7 +63,8 @@ public class WaitlistPerformanceBenchmark {
     }
 
     // Runs each trial using a fresh temporary JSON file.
-    private static void runTrial(int trial) throws IOException {
+    private static void runTrial(int trial, boolean cached)
+            throws IOException {
 
         Path directory = Files.createTempDirectory(
                 "petboarding-benchmark-");
@@ -57,14 +76,20 @@ public class WaitlistPerformanceBenchmark {
             JsonReservationRepository jsonRepository =
                     new JsonReservationRepository(file);
 
-            // Generate the same starting data for every trial.
+            // Generate identical starting data for both modes.
             jsonRepository.save(createDataset());
 
+            // Measure calls to the underlying JSON repository.
             CountingRepository repository =
                     new CountingRepository(jsonRepository);
 
+            // Select cached or uncached repository access.
+            ReservationRepository activeRepository = cached
+                    ? new CachingReservationRepository(repository)
+                    : repository;
+
             ReservationService service =
-                    new ReservationService(repository);
+                    new ReservationService(activeRepository);
 
             // Warm up the JVM and repository before measuring.
             for (int i = 0; i < 30; i++) {
@@ -154,12 +179,22 @@ public class WaitlistPerformanceBenchmark {
 
             // Capture measured repository activity.
             long totalLoads = repository.getLoadCount();
+
             double repositoryLoadTime =
                     repository.getLoadTimeMillis();
+
+            long totalSaves = repository.getSaveCount();
 
             // Verify final state outside the timed workload.
             verifyFinalState(
                     service.getAllReservations());
+
+            // Independently verify the persistent JSON file.
+            verifyFinalState(
+                    jsonRepository.load());
+
+            require(totalSaves == PROMOTION_CYCLES * 2L,
+                    "Unexpected number of persistent writes.");
 
             System.out.printf(Locale.ROOT,
                     "Availability total: %.3f ms%n",
@@ -204,11 +239,18 @@ public class WaitlistPerformanceBenchmark {
                     "Total JSON loading time: %.3f ms%n",
                     repositoryLoadTime);
 
+            System.out.println(
+                    "Total persistent writes: " + totalSaves);
+
             System.out.printf(Locale.ROOT,
                     "Total workload time: %.3f ms%n",
                     totalTime);
 
-            System.out.println("Correctness verification: PASSED");
+            System.out.println(
+                    "Correctness verification: PASSED");
+
+            System.out.println(
+                    "Persistent storage verification: PASSED");
 
         } finally {
 
@@ -363,7 +405,7 @@ public class WaitlistPerformanceBenchmark {
         return (System.nanoTime() - start) / 1_000_000.0;
     }
 
-    // Measures calls to the underlying persistent repository.
+    // Measures activity at the underlying persistent repository.
     private static class CountingRepository
             implements ReservationRepository {
 
@@ -371,6 +413,7 @@ public class WaitlistPerformanceBenchmark {
 
         private long loadCount;
         private long loadTimeNanos;
+        private long saveCount;
 
         CountingRepository(ReservationRepository delegate) {
             this.delegate = delegate;
@@ -394,6 +437,8 @@ public class WaitlistPerformanceBenchmark {
                 throws IOException {
 
             delegate.save(reservations);
+
+            saveCount++;
         }
 
         long getLoadCount() {
@@ -404,9 +449,14 @@ public class WaitlistPerformanceBenchmark {
             return loadTimeNanos / 1_000_000.0;
         }
 
+        long getSaveCount() {
+            return saveCount;
+        }
+
         void resetMeasurements() {
             loadCount = 0;
             loadTimeNanos = 0;
+            saveCount = 0;
         }
     }
 }
