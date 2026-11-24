@@ -163,6 +163,62 @@ public class ReservationService {
                 "Reservation not found.");
     }
 
+    // Promotes the oldest eligible reservations for each pet type.
+    // The same service lock protects requests and background processing.
+    public synchronized int promoteWaitlistedReservations()
+            throws IOException {
+
+        List<Reservation> reservations =
+                new ArrayList<>(repository.load());
+        List<Reservation> promoted = new ArrayList<>();
+
+        for (PetType petType : PetType.values()) {
+
+            long confirmed = reservations.stream()
+                    .filter(r -> r.getPetType() == petType
+                            && r.getStatus() == ReservationStatus.CONFIRMED)
+                    .count();
+
+            // Reservation IDs increase in creation order.
+            while (confirmed < getCapacity(petType)) {
+                int oldest = -1;
+
+                for (int i = 0; i < reservations.size(); i++) {
+                    Reservation candidate = reservations.get(i);
+
+                    if (candidate.getPetType() == petType
+                            && candidate.getStatus() == ReservationStatus.WAITLISTED
+                            && (oldest == -1 || candidate.getId()
+                                    < reservations.get(oldest).getId())) {
+                        oldest = i;
+                    }
+                }
+
+                if (oldest == -1) {
+                    break;
+                }
+
+                Reservation reservation = reservations.get(oldest)
+                        .withStatus(ReservationStatus.CONFIRMED);
+                reservations.set(oldest, reservation);
+                promoted.add(reservation);
+                confirmed++;
+            }
+        }
+
+        // Save all changes together; never write an unchanged snapshot.
+        if (!promoted.isEmpty()) {
+            repository.save(reservations);
+
+            // Audit only after the repository accepts the changes.
+            for (Reservation reservation : promoted) {
+                recordAudit("PROMOTED", reservation.getId());
+            }
+        }
+
+        return promoted.size();
+    }
+
     // Retrieves all reservations.
     public synchronized List<Reservation> getAllReservations()
             throws IOException {

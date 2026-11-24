@@ -3,6 +3,7 @@ package com.petboarding;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.petboarding.api.ReservationHttpServer;
 import com.petboarding.logging.AsyncAuditLogger;
@@ -12,6 +13,7 @@ import com.petboarding.repository.JsonReservationRepository;
 import com.petboarding.repository.InMemoryReservationRepository;
 import com.petboarding.repository.ReservationRepository;
 import com.petboarding.service.ReservationService;
+import com.petboarding.service.WaitlistProcessor;
 
 public class Main {
 
@@ -68,11 +70,6 @@ public class Main {
         AsyncAuditLogger auditLogger =
                 new AsyncAuditLogger();
 
-        // Attempt to finish queued log writes
-        // during normal application shutdown.
-        Runtime.getRuntime().addShutdownHook(
-                new Thread(auditLogger::close));
-
         // One shared reservation service.
         ReservationService service =
                 new ReservationService(
@@ -96,7 +93,28 @@ public class Main {
         System.out.println(
                 "Storage format: " + storage);
 
-        httpServer.start();
-        tcpServer.start();
+        // Start one background processor for the shared service.
+        WaitlistProcessor waitlistProcessor =
+                new WaitlistProcessor(service, 250);
+
+        // Stop network requests and promotion before closing the audit logger.
+        AtomicBoolean shuttingDown = new AtomicBoolean();
+        Runnable shutdown = () -> {
+            if (shuttingDown.compareAndSet(false, true)) {
+                tcpServer.stop();
+                httpServer.stop();
+                waitlistProcessor.close();
+                auditLogger.close();
+            }
+        };
+        Runtime.getRuntime().addShutdownHook(new Thread(shutdown));
+
+        try {
+            waitlistProcessor.start();
+            httpServer.start();
+            tcpServer.start();
+        } finally {
+            shutdown.run();
+        }
     }
 }
