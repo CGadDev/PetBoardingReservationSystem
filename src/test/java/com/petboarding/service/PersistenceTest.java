@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -151,5 +152,43 @@ public class PersistenceTest {
                 createRepository(format, file);
 
         assertThrows(IOException.class, repository::load);
+    }
+
+    // Verify waitlisted reservations survive storage and reload.
+    @ParameterizedTest
+    @ValueSource(strings = {"csv", "json"})
+    void testWaitlistedReservationPersists(String format)
+            throws Exception {
+
+        Path file = getFile(format);
+
+        ReservationRepository repository =
+                createRepository(format, file);
+
+        Reservation waitlisted = new Reservation(
+                1001L,
+                "Charlie",
+                PetType.DOG,
+                ReservationStatus.WAITLISTED
+        );
+
+        // Save the waitlisted reservation.
+        repository.save(List.of(waitlisted));
+
+        // Recreate the repository using the same saved file.
+        ReservationRepository restored =
+                createRepository(format, file);
+
+        List<Reservation> reservations = restored.load();
+
+        assertEquals(1, reservations.size());
+
+        Reservation saved = reservations.get(0);
+
+        assertEquals(waitlisted.getId(), saved.getId());
+        assertEquals("Charlie", saved.getPetName());
+        assertEquals(PetType.DOG, saved.getPetType());
+        assertEquals(ReservationStatus.WAITLISTED,
+                saved.getStatus());
     }
 }

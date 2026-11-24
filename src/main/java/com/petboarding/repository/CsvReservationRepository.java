@@ -25,7 +25,7 @@ public class CsvReservationRepository
 
     private static final Pattern ROW = Pattern.compile(
             "^(\\d+),\"((?:[^\"]|\"\")*)\","
-            + "(DOG|CAT),(CONFIRMED|CANCELLED)$");
+            + "(DOG|CAT),(CONFIRMED|WAITLISTED|CANCELLED)$");
 
     private final Path file;
 
