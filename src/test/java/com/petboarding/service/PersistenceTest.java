@@ -121,12 +121,17 @@ public class PersistenceTest {
         assertEquals(0,
                 restored.getAvailableSpaces(PetType.DOG));
 
-        assertThrows(IllegalStateException.class, () -> {
-            restored.reserve("Charlie", PetType.DOG);
-        });
+        Reservation waiting = restored.reserve("Charlie", PetType.DOG);
+        assertEquals(ReservationStatus.WAITLISTED, waiting.getStatus());
+        assertEquals(0, restored.getAvailableSpaces(PetType.DOG));
+        assertEquals(4, restored.getAllReservations().size());
 
-        assertEquals(3,
-                restored.getAllReservations().size());
+        ReservationService reloaded = new ReservationService(
+                createRepository(format, file));
+        assertEquals(ReservationStatus.WAITLISTED,
+                reloaded.getAllReservations().stream()
+                        .filter(r -> r.getId() == waiting.getId())
+                        .findFirst().orElseThrow().getStatus());
     }
 
     // Verify corrupted storage records are rejected.
@@ -153,7 +158,6 @@ public class PersistenceTest {
 
         assertThrows(IOException.class, repository::load);
     }
-
     // Verify waitlisted reservations survive storage and reload.
     @ParameterizedTest
     @ValueSource(strings = {"csv", "json"})
@@ -161,34 +165,21 @@ public class PersistenceTest {
             throws Exception {
 
         Path file = getFile(format);
-
-        ReservationRepository repository =
-                createRepository(format, file);
+        ReservationRepository repository = createRepository(format, file);
 
         Reservation waitlisted = new Reservation(
-                1001L,
-                "Charlie",
-                PetType.DOG,
-                ReservationStatus.WAITLISTED
-        );
+                1001L, "Charlie", PetType.DOG, ReservationStatus.WAITLISTED);
 
-        // Save the waitlisted reservation.
         repository.save(List.of(waitlisted));
 
-        // Recreate the repository using the same saved file.
-        ReservationRepository restored =
-                createRepository(format, file);
-
+        ReservationRepository restored = createRepository(format, file);
         List<Reservation> reservations = restored.load();
 
         assertEquals(1, reservations.size());
-
         Reservation saved = reservations.get(0);
-
         assertEquals(waitlisted.getId(), saved.getId());
         assertEquals("Charlie", saved.getPetName());
         assertEquals(PetType.DOG, saved.getPetType());
-        assertEquals(ReservationStatus.WAITLISTED,
-                saved.getStatus());
+        assertEquals(ReservationStatus.WAITLISTED, saved.getStatus());
     }
 }

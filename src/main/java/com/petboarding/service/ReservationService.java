@@ -87,10 +87,15 @@ public class ReservationService {
                         == ReservationStatus.CONFIRMED)
                 .count();
 
-        if (activeReservations >= capacity) {
-            throw new IllegalStateException(
-                    "No boarding spaces available.");
-        }
+        // Existing waitlisted pets have priority over new requests.
+        boolean hasWaitlist = reservations.stream()
+                .anyMatch(r -> r.getPetType() == petType
+                        && r.getStatus() == ReservationStatus.WAITLISTED);
+
+        ReservationStatus status = activeReservations >= capacity
+                || hasWaitlist
+                ? ReservationStatus.WAITLISTED
+                : ReservationStatus.CONFIRMED;
 
         long nextId = reservations.stream()
                 .mapToLong(Reservation::getId)
@@ -101,7 +106,7 @@ public class ReservationService {
                 nextId,
                 petName.trim(),
                 petType,
-                ReservationStatus.CONFIRMED
+                status
         );
 
         // Save the reservation before recording the event.
@@ -109,7 +114,8 @@ public class ReservationService {
         repository.save(reservations);
 
         // Schedule the audit event in the background.
-        recordAudit("RESERVED", reservation.getId());
+        recordAudit(status == ReservationStatus.WAITLISTED
+                ? "WAITLISTED" : "RESERVED", reservation.getId());
 
         return reservation;
     }

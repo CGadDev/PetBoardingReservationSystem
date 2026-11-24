@@ -268,7 +268,7 @@ public class TcpNetworkIntegrationTest {
             start.countDown();
 
             int successful = 0;
-            int rejected = 0;
+            int waitlisted = 0;
 
             for (Future<String> future : results) {
 
@@ -279,21 +279,19 @@ public class TcpNetworkIntegrationTest {
                     successful++;
 
                 } else {
-                    assertEquals(
-                            "ERROR|No spaces available",
-                            response);
-
-                    rejected++;
+                    assertTrue(response.startsWith("OK|WAITLISTED|"),
+                            "Unexpected response: " + response);
+                    waitlisted++;
                 }
             }
 
             assertEquals(1, successful);
-            assertEquals(9, rejected);
+            assertEquals(9, waitlisted);
 
             assertEquals(0,
                     service.getAvailableSpaces(PetType.DOG));
 
-            assertEquals(3,
+            assertEquals(12,
                     service.getAllReservations().size());
 
             System.out.println(
@@ -303,7 +301,7 @@ public class TcpNetworkIntegrationTest {
                     "Successful reservations: " + successful);
 
             System.out.println(
-                    "Rejected reservations: " + rejected);
+                    "Waitlisted reservations: " + waitlisted);
 
         } finally {
             start.countDown();

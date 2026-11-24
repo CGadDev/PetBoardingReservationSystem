@@ -64,9 +64,44 @@ public class ReservationServiceTest {
 
         assertEquals(0, service.getAvailableSpaces(PetType.DOG));
 
-        assertThrows(IllegalStateException.class, () -> {
-            service.reserve("Charlie", PetType.DOG);
-        });
+        Reservation waitlisted = service.reserve("Charlie", PetType.DOG);
+
+        assertEquals(ReservationStatus.WAITLISTED, waitlisted.getStatus());
+        assertEquals(0, service.getAvailableSpaces(PetType.DOG));
+        assertEquals(4, service.getAllReservations().size());
+        assertEquals(2, service.getAvailableSpaces(PetType.CAT));
+    }
+
+    @Test
+    void testWaitlistedReservationCanBeCancelled() throws IOException {
+
+        service.reserve("Potato", PetType.DOG);
+        service.reserve("Buddy", PetType.DOG);
+        service.reserve("Max", PetType.DOG);
+        Reservation waiting = service.reserve("Charlie", PetType.DOG);
+
+        Reservation cancelled = service.cancel(waiting.getId());
+
+        assertEquals(ReservationStatus.CANCELLED, cancelled.getStatus());
+        assertEquals(0, service.getAvailableSpaces(PetType.DOG));
+    }
+
+    @Test
+    void testNewReservationCannotBypassWaitlist() throws IOException {
+
+        Reservation first = service.reserve("Potato", PetType.DOG);
+        service.reserve("Buddy", PetType.DOG);
+        service.reserve("Max", PetType.DOG);
+        Reservation waiting = service.reserve("Charlie", PetType.DOG);
+
+        service.cancel(first.getId());
+        Reservation newcomer = service.reserve("Daisy", PetType.DOG);
+
+        // Until promotion is implemented, the open space is held
+        // for the existing waitlist rather than given to a newcomer.
+        assertEquals(ReservationStatus.WAITLISTED, newcomer.getStatus());
+        assertTrue(waiting.getId() < newcomer.getId());
+        assertEquals(1, service.getAvailableSpaces(PetType.DOG));
     }
 
     @Test

@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
 import com.petboarding.model.PetType;
+import com.petboarding.model.ReservationStatus;
 import com.petboarding.repository.InMemoryReservationRepository;
 
 public class ConcurrencyTest {
@@ -40,7 +41,7 @@ public class ConcurrencyTest {
         CountDownLatch start = new CountDownLatch(1);
 
         try {
-            List<Future<Boolean>> results = new ArrayList<>();
+            List<Future<ReservationStatus>> results = new ArrayList<>();
 
             // Simulate ten clients attempting reservations.
             for (int i = 0; i < clientCount; i++) {
@@ -52,17 +53,9 @@ public class ConcurrencyTest {
                     ready.countDown();
                     start.await();
 
-                    try {
-                        service.reserve(
-                                "Pet" + clientId,
-                                PetType.DOG
-                        );
-
-                        return true;
-
-                    } catch (IllegalStateException e) {
-                        return false;
-                    }
+                    return service.reserve(
+                            "Pet" + clientId, PetType.DOG
+                    ).getStatus();
                 }));
             }
 
@@ -72,22 +65,31 @@ public class ConcurrencyTest {
             // Release all clients to compete for the space.
             start.countDown();
 
-            int successfulReservations = 0;
+            int confirmedReservations = 0;
+            int waitlistedReservations = 0;
 
-            for (Future<Boolean> result : results) {
-                if (result.get(10, TimeUnit.SECONDS)) {
-                    successfulReservations++;
+            for (Future<ReservationStatus> result : results) {
+                ReservationStatus status = result.get(10, TimeUnit.SECONDS);
+                if (status == ReservationStatus.CONFIRMED) {
+                    confirmedReservations++;
+                } else {
+                    assertEquals(ReservationStatus.WAITLISTED, status);
+                    waitlistedReservations++;
                 }
             }
 
-            // Only one client should succeed.
-            assertEquals(1, successfulReservations);
+            // Only one client receives the remaining space.
+            assertEquals(1, confirmedReservations);
+            assertEquals(9, waitlistedReservations);
 
             // No dog spaces should remain.
             assertEquals(0, service.getAvailableSpaces(PetType.DOG));
 
-            // Exactly three reservations should exist.
-            assertEquals(3, service.getAllReservations().size());
+            // Three confirmed and nine waitlisted records should exist.
+            assertEquals(12, service.getAllReservations().size());
+            assertEquals(3L, service.getAllReservations().stream()
+                    .filter(r -> r.getStatus() == ReservationStatus.CONFIRMED)
+                    .count());
 
         } finally {
             start.countDown();

@@ -238,7 +238,7 @@ public class HttpApiIntegrationTest {
     }
 
     @Test
-    void testOverbookingReturnsConflict() throws Exception {
+    void testFullCapacityCreatesWaitlistedReservation() throws Exception {
 
         for (int i = 0; i < 3; i++) {
 
@@ -252,16 +252,23 @@ public class HttpApiIntegrationTest {
         }
 
         // Attempt a fourth dog reservation.
-        HttpResponse<String> conflict = send(
+        HttpResponse<String> waiting = send(
                 "POST",
                 "/reservations",
                 "{\"petName\":\"Charlie\",\"petType\":\"DOG\"}",
                 TEST_KEY);
 
-        assertEquals(409, conflict.statusCode());
+        assertEquals(201, waiting.statusCode());
+        JsonNode created = mapper.readTree(waiting.body());
+        assertEquals("WAITLISTED", created.get("status").asText());
+        assertEquals(0, service.getAvailableSpaces(PetType.DOG));
 
-        assertEquals(0,
-                service.getAvailableSpaces(PetType.DOG));
+        HttpResponse<String> retrieved = send(
+                "GET", "/reservations/" + created.get("reservationId").asLong(),
+                null, TEST_KEY);
+        assertEquals(200, retrieved.statusCode());
+        assertEquals("WAITLISTED",
+                mapper.readTree(retrieved.body()).get("status").asText());
     }
 
     @Test

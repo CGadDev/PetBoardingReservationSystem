@@ -11,6 +11,7 @@ import java.util.concurrent.*;
 
 import com.petboarding.model.PetType;
 import com.petboarding.model.Reservation;
+import com.petboarding.model.ReservationStatus;
 import com.petboarding.service.ReservationService;
 
 public class TcpServer {
@@ -302,7 +303,11 @@ public class TcpServer {
                     Reservation reservation =
                             service.reserve(petName, petType);
 
-                    return "OK|RESERVED|"
+                    String result = reservation.getStatus()
+                            == ReservationStatus.WAITLISTED
+                            ? "WAITLISTED" : "RESERVED";
+
+                    return "OK|" + result + "|"
                             + reservation.getId()
                             + "|" + reservation.getPetName();
 
@@ -357,10 +362,6 @@ public class TcpServer {
             return "ERROR|Reservation not found";
 
         } catch (IllegalStateException e) {
-
-            if (command.equals("RESERVE")) {
-                return "ERROR|No spaces available";
-            }
 
             if (command.equals("CANCEL")) {
                 return "ERROR|Reservation already cancelled";
