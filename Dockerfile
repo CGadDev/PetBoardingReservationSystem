@@ -7,8 +7,9 @@ WORKDIR /build
 COPY pom.xml .
 COPY src ./src
 
-# Build the application and collect its dependencies
+# Build, test, package, and collect runtime dependencies
 RUN mvn -B clean package dependency:copy-dependencies \
+    -DincludeScope=runtime \
     -DoutputDirectory=target/dependency
 
 # Stage 2: Create the application runtime image
@@ -20,11 +21,12 @@ WORKDIR /app
 COPY --from=build /build/target/PetBoardingReservationSystem-0.0.1-SNAPSHOT.jar app.jar
 COPY --from=build /build/target/dependency/ ./lib/
 
-# Use in-memory storage for the container demonstration
-ENV PET_BOARDING_STORAGE=memory
+# Default storage and caching configuration
+ENV PET_BOARDING_STORAGE=json
+ENV PET_BOARDING_CACHE=true
 
-# The application provides its HTTP API on port 8082
-EXPOSE 8082
+# HTTP and TCP server ports
+EXPOSE 8082 5050
 
 # Start the Pet Boarding Reservation System
 CMD ["java", "-cp", "app.jar:lib/*", "com.petboarding.Main"]

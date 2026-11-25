@@ -1,9 +1,29 @@
+# Version control
 .git
 .github
+
+# Eclipse configuration
 .settings
 .classpath
 .project
+.factorypath
+*.launch
+
+# Generated build files
 target
+
+# Runtime data and logs
+data
 logs
-vagrant
 *.log
+
+# Local credentials
+.env
+.env.*
+
+# Virtual machine configuration
+vagrant
+
+# Other IDE configuration
+.idea
+.vscode
